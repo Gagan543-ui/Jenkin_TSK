@@ -1,0 +1,63 @@
+def call(Map config = [:]) {
+    // Default values
+    def repoUrl   = config.repoUrl ?: "https://github.com/example/default-maven-app.git"
+    def branch    = config.branch ?: "main"
+    def mvnCmd    = config.mvnCmd ?: "clean package"
+    def notifyTo  = config.notifyTo ?: "console" // console, slack, or telegram
+    
+    def buildStatus = "SUCCESS"
+    
+    pipeline {
+        agent any
+        stages {
+            stage('Checkout') {
+                steps {
+                    script {
+                        echo "Cloning repository: ${repoUrl} (branch: ${branch})"
+                        git branch: branch, url: repoUrl
+                    }
+                }
+            }
+            stage('Maven Build') {
+                steps {
+                    script {
+                        echo "Running Maven command: mvn ${mvnCmd}"
+                        try {
+                            sh "mvn ${mvnCmd}"
+                        } catch (err) {
+                            buildStatus = "FAILURE"
+                            error "Build failed with error: ${err}"
+                        }
+                    }
+                }
+            }
+        }
+        post {
+            always {
+                script {
+                    def msg = """
+                    🧩 *Jenkins Maven Build Notification*
+                    • *Repository:* ${repoUrl}
+                    • *Branch:* ${branch}
+                    • *Command:* mvn ${mvnCmd}
+                    • *Status:* ${buildStatus}
+                    """.stripIndent()
+
+                    if (notifyTo == "console") {
+                        echo msg
+                    } else if (notifyTo == "slack") {
+                        slackSend(channel: '#build-notifications', message: msg)
+                    } else if (notifyTo == "telegram") {
+                        sh """
+                        curl -s -X POST https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage \
+                        -d chat_id=${TELEGRAM_CHAT_ID} \
+                        -d text="${msg}"
+                        """
+                    } else {
+                        echo "Unknown notification method: ${notifyTo}"
+                    }
+                }
+            }
+        }
+    }
+}
